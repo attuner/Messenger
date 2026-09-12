@@ -361,6 +361,10 @@
             gap: 5px;
         }
 
+        .spaces-action-btn.danger {
+            background: #ea4335;
+        }
+
         .chats-list {
             flex: 1;
             overflow-y: auto;
@@ -1346,7 +1350,10 @@
                         <div class="spaces-deck-sub" id="spaceBannerHost">Hosted by User</div>
                     </div>
                 </div>
-                <button class="spaces-action-btn" id="btnTuneInSpace" onclick="tuneInActiveSpace()">Tune In</button>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <button class="spaces-action-btn" id="btnTuneInSpace" onclick="tuneInActiveSpace()">Tune In</button>
+                    <button class="spaces-action-btn danger" id="btnLeaveSpace" style="display: none;" onclick="leaveOrEndSpace()">Leave</button>
+                </div>
             </div>
 
             <!-- Search Contacts -->
@@ -1679,6 +1686,7 @@
         let broadcastRole = "IDLE"; // 'IDLE' | 'HOST' | 'LISTENER'
         let currentActiveRoom = null;
         let spaceLocalStream = null;
+        let spaceIncomingCall = null;
         let spaceConnectedPeers = new Map();
 
         // Cross-tab Broadcast Channel
@@ -1740,9 +1748,10 @@
             return "wa_instant_" + username.toLowerCase().replace(/[^a-z0-9]/g, "_");
         }
 
-        // WebRTC initialization via low-latency STUN mesh
         function initPeerSocket() {
-            if (myPeer) myPeer.destroy();
+            if (myPeer) {
+                try { myPeer.destroy(); } catch (e) {}
+            }
 
             const myId = getPeerId(currentUser);
             myPeer = new Peer(myId, {
@@ -1756,15 +1765,12 @@
                 }
             });
 
-            // Inbound P2P Direct DataChannel
             myPeer.on("connection", (conn) => {
                 setupDataConnectionListeners(conn);
             });
 
-            // Inbound Zero-Lag 1-on-1 Audio/Video Call Handshake
             myPeer.on("call", (mediaCall) => {
                 if (mediaCall.metadata?.isBroadcast) {
-                    // Direct Broadcast Listener Connection
                     if (broadcastRole === "HOST" && spaceLocalStream) {
                         mediaCall.answer(spaceLocalStream);
                         spaceConnectedPeers.set(mediaCall.peer, mediaCall);
@@ -1792,7 +1798,7 @@
             });
 
             myPeer.on("error", (err) => {
-                console.warn("PeerJS connection warning:", err);
+                console.warn("PeerJS connection note:", err);
             });
         }
 
@@ -1883,7 +1889,6 @@
             playWhatsAppTone("RINGBACK");
 
             try {
-                // High Quality Media Constraints with Automatic Echo Cancellation to Eliminate Delay/Lag
                 localStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
@@ -2144,7 +2149,13 @@
                 })
             }).catch(() => {});
 
-            alert(`Space "${title}" is now LIVE! Peers can tune in from their screen.`);
+            document.getElementById("spaceBannerTitle").innerText = `${title} (Live Hosting)`;
+            document.getElementById("spaceBannerHost").innerText = `Listeners connected: 0`;
+            document.getElementById("btnTuneInSpace").style.display = "none";
+            document.getElementById("btnLeaveSpace").style.display = "inline-flex";
+            document.getElementById("btnLeaveSpace").innerText = "End Space";
+            document.getElementById("activeSpacesBanner").style.display = "flex";
+
             fetchActiveSpaces();
         }
 
@@ -2157,24 +2168,58 @@
             }
 
             const hostPeerId = getPeerId(space.broadcasterId);
-            // Create a fake audio track to initiate WebRTC call handshake
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const dst = ctx.createMediaStreamDestination();
             const dummyStream = dst.stream;
 
-            const call = myPeer.call(hostPeerId, dummyStream, {
+            spaceIncomingCall = myPeer.call(hostPeerId, dummyStream, {
                 metadata: { isBroadcast: true, listenerName: currentUser }
             });
 
-            call.on("stream", (remoteStream) => {
+            spaceIncomingCall.on("stream", (remoteStream) => {
                 const audio = new Audio();
                 audio.srcObject = remoteStream;
                 audio.play();
-                alert(`Connected to "${space.title}". Listening live audio.`);
-                document.getElementById("btnTuneInSpace").innerText = "Listening...";
+                broadcastRole = "LISTENER";
+                document.getElementById("btnTuneInSpace").style.display = "none";
+                document.getElementById("btnLeaveSpace").style.display = "inline-flex";
+                document.getElementById("btnLeaveSpace").innerText = "Leave";
             });
 
-            call.on("error", (err) => alert("Failed to connect to space: " + err.message));
+            spaceIncomingCall.on("close", () => {
+                leaveOrEndSpace(false);
+            });
+
+            spaceIncomingCall.on("error", (err) => alert("Failed to connect to space: " + err.message));
+        }
+
+        function leaveOrEndSpace(notifyBackend = true) {
+            if (broadcastRole === "HOST") {
+                if (notifyBackend && currentActiveRoom) {
+                    fetch(SCRIPT_URL, {
+                        method: "POST",
+                        body: JSON.stringify({ action: "endBroadcast", roomId: currentActiveRoom.roomId })
+                    }).catch(() => {});
+                }
+                spaceConnectedPeers.forEach(peerCall => peerCall.close());
+                spaceConnectedPeers.clear();
+                if (spaceLocalStream) {
+                    spaceLocalStream.getTracks().forEach(t => t.stop());
+                    spaceLocalStream = null;
+                }
+            } else if (broadcastRole === "LISTENER") {
+                if (spaceIncomingCall) {
+                    spaceIncomingCall.close();
+                    spaceIncomingCall = null;
+                }
+            }
+
+            broadcastRole = "IDLE";
+            currentActiveRoom = null;
+            document.getElementById("btnTuneInSpace").style.display = "inline-flex";
+            document.getElementById("btnTuneInSpace").innerText = "Tune In";
+            document.getElementById("btnLeaveSpace").style.display = "none";
+            fetchActiveSpaces();
         }
 
         async function fetchActiveSpaces() {
@@ -2184,11 +2229,15 @@
                 if (data.status === "success" && data.rooms && data.rooms.length > 0) {
                     activeSpacesList = data.rooms;
                     const space = data.rooms[0];
-                    document.getElementById("spaceBannerTitle").innerText = space.title;
-                    document.getElementById("spaceBannerHost").innerText = `Host: ${space.broadcasterId} • ${space.category || 'Audio Space'}`;
-                    document.getElementById("activeSpacesBanner").style.display = "flex";
+                    if (broadcastRole !== "HOST") {
+                        document.getElementById("spaceBannerTitle").innerText = space.title;
+                        document.getElementById("spaceBannerHost").innerText = `Host: ${space.broadcasterId} • ${space.category || 'Audio Space'}`;
+                        document.getElementById("activeSpacesBanner").style.display = "flex";
+                    }
                 } else {
-                    document.getElementById("activeSpacesBanner").style.display = "none";
+                    if (broadcastRole === "IDLE") {
+                        document.getElementById("activeSpacesBanner").style.display = "none";
+                    }
                 }
             } catch (e) {}
         }
@@ -2656,12 +2705,41 @@
             document.getElementById("attachPopup").style.display = "none";
 
             setProgress(30);
+
+            // Auto-scale images to avoid cell overflows and bandwidth lag
+            if (file.type.startsWith("image/")) {
+                const img = new Image();
+                img.onload = async () => {
+                    const canvas = document.createElement("canvas");
+                    const maxDim = 800;
+                    let w = img.width, h = img.height;
+                    if (w > maxDim || h > maxDim) {
+                        if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+                        else { w = Math.round((w * maxDim) / h); h = maxDim; }
+                    }
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, w, h);
+                    const resizedData = canvas.toDataURL("image/jpeg", 0.7);
+
+                    await dispatchMessagePayload({
+                        type: "image",
+                        content: file.name,
+                        fileData: resizedData,
+                        fileType: "image/jpeg"
+                    });
+                    setProgress(100);
+                    setTimeout(() => setProgress(0), 300);
+                };
+                img.src = URL.createObjectURL(file);
+                return;
+            }
+
             const reader = new FileReader();
             reader.onload = async () => {
                 setProgress(60);
                 let payloadType = "document";
-                if (file.type.startsWith("image/")) payloadType = "image";
-                else if (file.type.startsWith("video/")) payloadType = "video";
+                if (file.type.startsWith("video/")) payloadType = "video";
                 else if (file.type.startsWith("audio/")) payloadType = "audio";
 
                 await dispatchMessagePayload({
@@ -2723,7 +2801,7 @@
                     await saveLocalMessage(msgRecord);
                 }
             } catch (err) {
-                console.error("Network queue error", err);
+                console.error("Network queue note:", err);
             }
         }
 
