@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AirWave — Live Spaces & Direct P2P Calling/Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+  <style>
+    .glow { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.4); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col antialiased">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/30">
+          <i class="fa-solid fa-satellite-dish text-lg"></i>
+        </div>
+        <div>
+          <span class="text-xl font-black tracking-tight text-white">Air<span class="text-indigo-500">Wave</span></span>
+          <span class="hidden sm:inline-block text-[10px] bg-slate-800 text-slate-400 uppercase tracking-widest px-2 py-0.5 rounded ml-2 border border-slate-700">P2P Mesh</span>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-4">
+        <div id="userBadge" class="hidden items-center space-x-3 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700 text-sm">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="displayUsername" class="font-semibold text-slate-200">Guest</span>
+        </div>
+        <button id="btnSettings" title="Sign out / Config" class="text-slate-400 hover:text-white transition p-2">
+          <i class="fa-solid fa-gear"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Toast Notification Stack -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- Onboarding / Authentication Screen -->
+  <section id="onboardingSection" class="max-w-md mx-auto my-auto p-6 w-full">
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl glow shadow-2xl space-y-6">
+      <div class="text-center space-y-2">
+        <h2 class="text-2xl font-bold">Welcome to AirWave</h2>
+        <p class="text-sm text-slate-400">Serverless Direct Audio/Video Calls, P2P Messaging & Live Spaces.</p>
+      </div>
+      <form id="joinForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Display Name</label>
+          <input id="usernameInput" type="text" required placeholder="e.g. Alex Rivera" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 focus:border-indigo-500 outline-none text-white transition text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Status Bio</label>
+          <input id="statusMsgInput" type="text" placeholder="e.g. 🎧 Ready to talk | Building WebRTC" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 focus:border-indigo-500 outline-none text-white transition text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Google Apps Script Web App URL</label>
+          <input id="apiUrlInput" type="url" required placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 focus:border-indigo-500 outline-none text-white transition text-xs font-mono" />
+        </div>
+        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl transition shadow-lg shadow-indigo-600/30">
+          Enter Space
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Main App Workspace -->
+  <div id="appWorkspace" class="hidden flex-1 max-w-7xl mx-auto px-4 py-6 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left / Center Column (Directory, Active Calls, Spaces) -->
+    <div class="lg:col-span-8 space-y-6">
+
+      <!-- Live Broadcast Spaces Bar -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center">
+            <i class="fa-solid fa-tower-broadcast text-indigo-500 mr-2"></i> Live Audio Spaces
+          </h2>
+          <p class="text-xs text-slate-400">Broadcast your voice to unlimited listeners or tune in.</p>
+        </div>
+        <div class="flex items-center space-x-3 w-full sm:w-auto">
+          <button id="btnOpenBroadcastModal" class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-xl transition shadow-lg shadow-indigo-600/20 flex-1 sm:flex-none">
+            <i class="fa-solid fa-microphone-lines mr-1.5"></i> Go Live
+          </button>
+        </div>
+      </div>
+
+      <!-- Broadcaster Dashboard Console (Hidden by default) -->
+      <div id="broadcasterConsole" class="hidden bg-slate-900 border border-indigo-500/40 rounded-2xl p-6 glow space-y-4">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-4">
+          <div>
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+              <span class="w-2 h-2 rounded-full bg-red-500 animate-ping mr-1.5"></span> LIVE ON AIR
+            </span>
+            <h3 id="broadcastTitleDisplay" class="text-xl font-bold text-white mt-1">Channel</h3>
+            <p class="text-xs text-slate-400"><i class="fa-solid fa-users text-indigo-400"></i> <span id="listenerCount">0</span> listening</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button id="btnToggleBroadcastMic" class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-200">
+              <i class="fa-solid fa-microphone"></i>
+            </button>
+            <button id="btnEndBroadcast" class="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-lg shadow-rose-600/20">
+              End Broadcast
+            </button>
+          </div>
+        </div>
+        <canvas id="visualizerCanvas" width="600" height="60" class="w-full h-14 bg-slate-950 rounded-xl"></canvas>
+      </div>
+
+      <!-- Live Space Player Deck (Listeners) -->
+      <div id="listenerDeck" class="hidden bg-slate-900 border border-indigo-500/30 rounded-2xl p-4 flex items-center justify-between shadow-xl">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+            <i class="fa-solid fa-headphones"></i>
+          </div>
+          <div>
+            <h4 id="listenerRoomTitle" class="text-sm font-bold text-white">Space Name</h4>
+            <p id="listenerPeerStatus" class="text-xs text-emerald-400">Connected</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-3">
+          <audio id="remoteBroadcastAudio" autoplay playsinline></audio>
+          <button id="btnLeaveSpace" class="bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700">Leave</button>
+        </div>
+      </div>
+
+      <!-- Active Spaces List -->
+      <div id="roomsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+
+      <!-- User Directory & Peer Presence Search -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center">
+              <i class="fa-solid fa-users text-indigo-500 mr-2"></i> User Directory & Presence
+            </h3>
+            <p class="text-xs text-slate-400">Search peers, view custom statuses, and start instant calls or chats.</p>
+          </div>
+          <div class="relative w-full sm:w-64">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-xs text-slate-500"></i>
+            <input id="userSearchInput" type="text" placeholder="Search by name or status..." class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-indigo-500 transition" />
+          </div>
+        </div>
+
+        <div id="usersList" class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
+          <!-- Users dynamic injection -->
+        </div>
+      </div>
+
+      <!-- Direct 1-on-1 Video & Audio Call View (Hidden when no call active) -->
+      <div id="activeCallView" class="hidden bg-slate-900 border border-indigo-500/40 rounded-2xl p-6 glow space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+          <div>
+            <span id="callTypeBadge" class="text-xs uppercase font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">Voice Call</span>
+            <h3 id="callPeerName" class="text-lg font-bold text-white mt-1">Calling...</h3>
+            <p id="callStatusTimer" class="text-xs text-slate-400">Connecting WebRTC P2P...</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button id="btnToggleCallCam" class="w-10 h-10 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 flex items-center justify-center">
+              <i class="fa-solid fa-video"></i>
+            </button>
+            <button id="btnToggleCallMic" class="w-10 h-10 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 flex items-center justify-center">
+              <i class="fa-solid fa-microphone"></i>
+            </button>
+            <button id="btnEndCall" class="w-10 h-10 rounded-xl bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-lg shadow-rose-600/30">
+              <i class="fa-solid fa-phone-slash"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Video Frames Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 h-72 bg-slate-950 rounded-xl p-2 relative overflow-hidden">
+          <div class="relative w-full h-full bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center border border-slate-800">
+            <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+            <span class="absolute bottom-2 left-2 text-[10px] bg-slate-900/80 px-2 py-0.5 rounded text-slate-300">Remote Stream</span>
+          </div>
+          <div class="relative w-full h-full bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center border border-slate-800">
+            <video id="localVideo" autoplay playsinline muted class="w-full h-full object-cover"></video>
+            <span class="absolute bottom-2 left-2 text-[10px] bg-slate-900/80 px-2 py-0.5 rounded text-slate-300">You</span>
+          </div>
+        </div>
+        <audio id="remoteCallAudio" autoplay playsinline></audio>
+      </div>
+
+    </div>
+
+    <!-- Right Column (Real-Time Direct P2P Chat & Media Messenger) -->
+    <div class="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col h-[740px] shadow-2xl overflow-hidden">
+      <!-- Chat Header -->
+      <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+        <div class="flex items-center space-x-3 truncate">
+          <div class="relative">
+            <div class="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold">
+              <i class="fa-solid fa-comments"></i>
+            </div>
+            <span id="chatPeerOnlineDot" class="hidden absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-900"></span>
+          </div>
+          <div class="truncate">
+            <h4 id="chatPeerName" class="text-sm font-bold text-white truncate">Select a User</h4>
+            <p id="chatPeerStatus" class="text-[11px] text-slate-400 truncate">P2P RTCDataChannel Offline</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-1">
+          <button id="btnStartDirectAudioCall" title="Voice Call" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs">
+            <i class="fa-solid fa-phone"></i>
+          </button>
+          <button id="btnStartDirectVideoCall" title="Video Call" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs">
+            <i class="fa-solid fa-video"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Messages Thread -->
+      <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-3 text-xs bg-slate-950/40">
+        <div class="text-center py-12 text-slate-500">
+          <i class="fa-solid fa-lock-open text-xl mb-2 text-slate-600"></i>
+          <p>Direct peer-to-peer end-to-end messaging.</p>
+          <p class="text-[10px] text-slate-600 mt-1">Messages & media flow directly via WebRTC Data Channels without touching any database.</p>
+        </div>
+      </div>
+
+      <!-- Audio Voice Recording Drawer -->
+      <div id="voiceRecordingPreview" class="hidden px-4 py-2 bg-slate-800 border-t border-slate-700 flex items-center justify-between text-xs">
+        <div class="flex items-center space-x-2 text-rose-400">
+          <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+          <span>Recording Voice Note (<span id="voiceRecordTimer">00:00</span>)...</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button id="btnCancelVoiceRecord" class="text-slate-400 hover:text-white text-xs"><i class="fa-solid fa-xmark"></i></button>
+          <button id="btnSendVoiceRecord" class="bg-indigo-600 text-white px-2 py-1 rounded text-xs">Send</button>
+        </div>
+      </div>
+
+      <!-- Message Input Controls -->
+      <div class="p-3 border-t border-slate-800 bg-slate-900/60 space-y-2">
+        <div class="flex items-center space-x-2">
+          <input id="chatTextInput" type="text" placeholder="Type direct message..." class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-indigo-500" />
+          <button id="btnSendText" class="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center text-xs shadow-lg shadow-indigo-600/30">
+            <i class="fa-solid fa-paper-plane"></i>
+          </button>
+        </div>
+
+        <!-- Attachment Bar (Audio, Video, Image) -->
+        <div class="flex items-center justify-between text-slate-400 pt-1 text-xs">
+          <div class="flex items-center space-x-3">
+            <!-- Hidden file inputs -->
+            <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
+            <input type="file" id="videoFileInput" accept="video/*" class="hidden" />
+
+            <button id="btnTriggerImage" title="Send Image" class="hover:text-indigo-400 transition">
+              <i class="fa-solid fa-image"></i>
+            </button>
+            <button id="btnTriggerVideo" title="Send Video File" class="hover:text-indigo-400 transition">
+              <i class="fa-solid fa-film"></i>
+            </button>
+            <button id="btnRecordVoice" title="Record Voice Audio" class="hover:text-rose-400 transition">
+              <i class="fa-solid fa-microphone"></i>
+            </button>
+          </div>
+          <span class="text-[10px] text-slate-500">Max size ~25MB P2P</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Incoming Call Modal -->
+  <div id="incomingCallModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-indigo-500/50 rounded-2xl max-w-sm w-full p-6 text-center space-y-5 glow shadow-2xl">
+      <div class="w-16 h-16 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-2xl mx-auto animate-bounce">
+        <i class="fa-solid fa-phone-volume"></i>
+      </div>
+      <div>
+        <h3 id="incomingCallerName" class="text-xl font-bold text-white">Caller Name</h3>
+        <p id="incomingCallType" class="text-xs text-indigo-400 mt-1 uppercase font-semibold">Incoming Voice Call</p>
+      </div>
+      <div class="flex items-center justify-center space-x-4 pt-2">
+        <button id="btnRejectCall" class="w-14 h-14 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-lg shadow-rose-600/30 text-xl">
+          <i class="fa-solid fa-phone-slash"></i>
+        </button>
+        <button id="btnAcceptCall" class="w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 text-xl animate-pulse">
+          <i class="fa-solid fa-phone"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Broadcast Configuration -->
+  <div id="broadcastModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white">Setup Audio Space</h3>
+        <button id="btnCloseBroadcastModal" class="text-slate-400 hover:text-white text-base"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form id="startBroadcastForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Space Title</label>
+          <input id="streamTitleInput" type="text" required placeholder="e.g. Modern WebRTC & Networking" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-white outline-none focus:border-indigo-500 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Category</label>
+          <select id="streamCategoryInput" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-white outline-none focus:border-indigo-500 text-sm">
+            <option value="Tech">Tech & Engineering</option>
+            <option value="Music">Music & Chill</option>
+            <option value="Casual">Casual Chat</option>
+          </select>
+        </div>
+        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl transition shadow-lg shadow-indigo-600/30 text-sm">
+          Launch Space
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
